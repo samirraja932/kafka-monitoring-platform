@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-headless
+  namespace: kafka-monitoring
+  labels:
+    app: zookeeper
+spec:
+  ports:
+  - port: 2181
+    name: client
+  - port: 2888
+    name: follower
+  - port: 3888
+    name: election
+  clusterIP: None
+  selector:
+    app: zookeeper
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  namespace: kafka-monitoring
+spec:
+  serviceName: zookeeper-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: zookeeper:3.9.3
+        ports:
+        - containerPort: 2181
+          name: client
+        - containerPort: 2888
+          name: follower
+        - containerPort: 3888
+          name: election
+        command:
+        - bash
+        - -c
+        - |
+          set -ex
+          
+          # Extract server ID from hostname (zookeeper-0 -> 1, zookeeper-1 -> 2, etc.)
+          if [[ $HOSTNAME =~ zookeeper-([0-9]+) ]]; then
+            SERVER_ID=$((${BASH_REMATCH[1]} + 1))
+          else
+            echo "ERROR: Failed to extract server ID from hostname: $HOSTNAME"
+            exit 1
+          fi
+          
+          echo "Starting ZooKeeper with Server ID: $SERVER_ID"
+          
+          # Create directories
+          mkdir -p /var/lib/zookeeper/data
+          mkdir -p /var/lib/zookeeper/log
+          
+          # Create myid file
+          echo "$SERVER_ID" > /var/lib/zookeeper/data/myid
+          
+          # Create zoo.cfg
+          cat > /conf/zoo.cfg <<EOF
+          tickTime=2000
+          initLimit=10
+          syncLimit=5
+          dataDir=/var/lib/zookeeper/data
+          dataLogDir=/var/lib/zookeeper/log
+          clientPort=2181
+          maxClientCnxns=60
+          autopurge.snapRetainCount=3
+          autopurge.purgeInterval=1
+          4lw.commands.whitelist=*
+          
+          server.1=zookeeper-0.zookeeper-headless.kafka-monitoring.svc.cluster.local:2888:3888
+          server.2=zookeeper-1.zookeeper-headless.kafka-monitoring.svc.cluster.local:2888:3888
+          server.3=zookeeper-2.zookeeper-headless.kafka-monitoring.svc.cluster.local:2888:3888
+          EOF
+          
+          # Set log level to INFO
+          cat > /conf/log4j.properties <<EOF
+          log4j.rootLogger=INFO, CONSOLE
+          log4j.appender.CONSOLE=org.apache.log4j.ConsoleAppender
+          log4j.appender.CONSOLE.Threshold=INFO
+          log4j.appender.CONSOLE.layout=org.apache.log4j.PatternLayout
+          log4j.appender.CONSOLE.layout.ConversionPattern=%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n
+          EOF
+          
+          echo "Configuration complete. Starting ZooKeeper..."
+          cat /conf/zoo.cfg
+          
+          exec zkServer.sh start-foreground
+        
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/zookeeper/data
+        - name: log
+          mountPath: /var/lib/zookeeper/log
+        
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              echo ruok | nc localhost 2181 | grep imok
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              echo ruok | nc localhost 2181 | grep imok
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+  
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi
+  - metadata:
+      name: log
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi

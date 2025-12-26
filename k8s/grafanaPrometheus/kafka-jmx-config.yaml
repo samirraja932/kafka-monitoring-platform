@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-jmx-config
+  namespace: kafka-monitoring
+data:
+  jmx-exporter-config.yml: |
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    whitelistObjectNames:
+      - kafka.server:type=BrokerTopicMetrics,*
+      - kafka.server:type=ReplicaManager,*
+      - kafka.server:type=KafkaRequestHandlerPool,*
+      - kafka.server:type=RequestMetrics,*
+      - kafka.server:type=Fetch,*
+      - kafka.server:type=Produce,*
+      - kafka.controller:type=KafkaController,*
+      - kafka.controller:type=ControllerStats,*
+      - kafka.network:type=RequestMetrics,*
+      - kafka.network:type=Processor,*
+      - kafka.log:type=LogFlushStats,*
+      - kafka.log:type=Log,*
+      - java.lang:type=OperatingSystem
+      - java.lang:type=GarbageCollector,*
+      - java.lang:type=Threading
+      - java.lang:type=Runtime
+      - java.lang:type=Memory
+    rules:
+      # BrokerTopicMetrics
+      - pattern: kafka.server<type=BrokerTopicMetrics, name=(.+), topic=(.+)><>(\w+)
+        name: kafka_server_brokertopicmetrics_$1
+        type: GAUGE
+        labels:
+          topic: "$2"
+      
+      - pattern: kafka.server<type=BrokerTopicMetrics, name=(.+)><>(Count|OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate)
+        name: kafka_server_brokertopicmetrics_$1
+        type: GAUGE
+      
+      # ReplicaManager
+      - pattern: kafka.server<type=ReplicaManager, name=(.+)><>(Value|OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate)
+        name: kafka_server_replicamanager_$1
+        type: GAUGE
+      
+      # KafkaRequestHandlerPool
+      - pattern: kafka.server<type=KafkaRequestHandlerPool, name=(.+)><>(Count|OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate)
+        name: kafka_server_kafkarequesthandlerpool_$1
+        type: GAUGE
+      
+      # RequestMetrics
+      - pattern: kafka.network<type=RequestMetrics, name=(.+), request=(.+)><>(Count|OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate|Mean|Min|Max|50thPercentile|75thPercentile|95thPercentile|98thPercentile|99thPercentile|999thPercentile)
+        name: kafka_network_requestmetrics_$1
+        type: GAUGE
+        labels:
+          request: "$2"
+      
+      # Controller
+      - pattern: kafka.controller<type=KafkaController, name=(.+)><>Value
+        name: kafka_controller_kafkacontroller_$1
+        type: GAUGE
+      
+      - pattern: kafka.controller<type=ControllerStats, name=(.+)><>(Count|OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate|Mean)
+        name: kafka_controller_controllerstats_$1
+        type: GAUGE
+      
+      # Partition metrics
+      - pattern: kafka.cluster<type=Partition, name=(.+), topic=(.+), partition=(.+)><>Value
+        name: kafka_cluster_partition_$1
+        type: GAUGE
+        labels:
+          topic: "$2"
+          partition: "$3"
+      
+      # Log metrics
+      - pattern: kafka.log<type=Log, name=(.+), topic=(.+), partition=(.+)><>Value
+        name: kafka_log_log_$1
+        type: GAUGE
+        labels:
+          topic: "$2"
+          partition: "$3"
+      
+      # JVM metrics
+      - pattern: java.lang<type=Memory><HeapMemoryUsage>(\w+)
+        name: jvm_memory_heap_$1
+        type: GAUGE
+      
+      - pattern: java.lang<type=Memory><NonHeapMemoryUsage>(\w+)
+        name: jvm_memory_nonheap_$1
+        type: GAUGE
+      
+      - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionCount
+        name: jvm_gc_collection_count
+        type: COUNTER
+        labels:
+          gc: "$1"
+      
+      - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionTime
+        name: jvm_gc_collection_time_ms
+        type: COUNTER
+        labels:
+          gc: "$1"
+      
+      - pattern: java.lang<type=Threading><>ThreadCount
+        name: jvm_threads_current
+        type: GAUGE
+      
+      - pattern: java.lang<type=Threading><>DaemonThreadCount
+        name: jvm_threads_daemon
+        type: GAUGE
+      
+      - pattern: java.lang<type=OperatingSystem><>SystemLoadAverage
+        name: jvm_system_load_average
+        type: GAUGE
