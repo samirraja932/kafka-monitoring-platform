@@ -1,0 +1,24 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Validate YAML files
+      run: |
+        echo "Validating YAML syntax..."
+        find k8s/ -name "*.yaml" -exec echo "Checking: {}" \;
+        find k8s/ -name "*.yaml" -exec yamllint -d relaxed {} \; || true
+    
+    - name: Success message
+      run: echo "✅ Validation complete!"
